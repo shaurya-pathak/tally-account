@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Tally account</title>
+<style>
+  :root { color-scheme: dark; --bg:#0b0e13; --card:#151a22; --line:#2a3340; --text:#f2f5f8; --muted:#9aa7b6; --green:#34d399; --amber:#fbbf24; }
+  * { box-sizing:border-box }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--text);
+         font:16px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif; padding:24px; }
+  .card { width:100%; max-width:420px; background:var(--card); border:1px solid var(--line); border-radius:18px; padding:28px; }
+  .mark { width:44px; height:44px; border-radius:12px; background:linear-gradient(135deg,var(--green),#0ea5e9); display:grid; place-items:center; font-weight:800; color:#05131c; }
+  h1 { font-size:1.3rem; margin:18px 0 6px; letter-spacing:-.02em }
+  p { color:var(--muted); margin:6px 0 }
+  label { display:block; font-size:.82rem; color:var(--muted); margin:18px 0 6px }
+  input { width:100%; padding:12px 13px; border-radius:11px; border:1px solid var(--line); background:#0c1119; color:var(--text); font:inherit }
+  button { width:100%; margin-top:12px; padding:12px 14px; border:0; border-radius:11px; font:inherit; font-weight:600; cursor:pointer }
+  button.primary { background:var(--green); color:#05131c }
+  button.secondary { background:transparent; color:var(--text); border:1px solid var(--line) }
+  button.danger { background:transparent; color:#fca5a5; border:1px solid #4c2626 }
+  button[disabled] { opacity:.5; cursor:progress }
+  .row { display:flex; gap:10px } .row button { margin-top:0 }
+  .scope { margin:14px 0; padding:12px 14px; background:#0c1119; border:1px solid var(--line); border-radius:11px; font-size:.86rem }
+  .scope code { color:var(--amber); font-size:.82rem }
+  .status { margin-top:14px; font-size:.86rem; min-height:1.2em; color:var(--muted) }
+  .status.error { color:#fca5a5 } .status.ok { color:var(--green) }
+  .muted { font-size:.78rem; color:var(--muted); margin-top:16px }
+  .hidden { display:none }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="mark">T</div>
+
+  <section id="consent" class="hidden">
+    <h1 id="consent-title">Connect an app</h1>
+    <p>This application wants to read and edit your Tally training log. It sees only the routines and workouts your account can see.</p>
+    <div class="scope">Requested scopes<br><code id="consent-scopes"></code></div>
+    <div class="row">
+      <button class="primary" id="approve">Approve</button>
+      <button class="danger" id="deny">Deny</button>
+    </div>
+    <div class="status" id="consent-status"></div>
+    <p class="muted">Raw motion traces and Apple Health data never leave your devices and are not reachable by this application.</p>
+  </section>
+
+  <section id="signin">
+    <h1>Sign in to Tally</h1>
+    <p id="signin-lead">Use your Tally account email. We will send a sign-in link.</p>
+    <form id="email-form">
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="email" required placeholder="you@example.com">
+      <button class="primary" type="submit" id="send-link">Send sign-in link</button>
+    </form>
+    <div id="sent" class="hidden">
+      <p style="margin-top:18px">Check your email. Open the link on this device to finish signing in.</p>
+      <button class="secondary" type="button" id="resend">Use a different email</button>
+    </div>
+    <button class="secondary" id="apple" type="button">Sign in with Apple</button>
+    <div class="status" id="signin-status"></div>
+    <p class="muted" id="privacy">Tally stores kg in the cloud and only training data. Sensor traces and Health data stay on your devices.</p>
+  </section>
+</div>
+
+<script type="module">
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.117.0'
+
+// The publishable key is designed to be public; RLS is what protects the data.
+const SUPABASE_URL = 'https://leqqijtojgxmnhoxuqec.supabase.co'
+const SUPABASE_KEY = 'sb_publishable_pkJ0S0EDI9QN-QBlYKFRLQ_Se_RlOCH'
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { flowType: 'pkce', detectSessionInUrl: true, persistSession: true }
+})
+
+const params = new URLSearchParams(location.search)
+const authorizationId = params.get('authorization_id')
+const wantsConsent = params.get('view') === 'consent' || Boolean(authorizationId)
+
+const consentView = document.getElementById('consent')
+const signinView = document.getElementById('signin')
+const signinStatus = document.getElementById('signin-status')
+const consentStatus = document.getElementById('consent-status')
+const emailForm = document.getElementById('email-form')
+const sentPanel = document.getElementById('sent')
+
+function setStatus(el, text, kind) {
+  el.textContent = text || ''
+  el.className = 'status' + (kind ? ' ' + kind : '')
+}
+function busy(button, on) { if (button) button.disabled = on }
+
+function callbackUrl() {
+  const url = new URL(location.href)
+  url.searchParams.delete('code')
+  url.searchParams.delete('error')
+  url.searchParams.delete('error_description')
+  return url.href
+}
+
+async function showConsent() {
+  signinView.classList.add('hidden')
+  consentView.classList.remove('hidden')
+  setStatus(consentStatus, 'Loading the request…')
+  const { data, error } = await supabase.auth.oauth.getAuthorizationDetails(authorizationId)
+  if (error) { setStatus(consentStatus, error.message, 'error'); return }
+  // The server returns only a redirect URL when this client was already approved.
+  if (!data || !('authorization_id' in data)) {
+    location.replace(data?.redirect_url ?? './')
+    return
+  }
+  document.getElementById('consent-title').textContent = 'Connect ' + (data.client?.name ?? 'an app')
+  document.getElementById('consent-scopes').textContent = data.scope || 'openid email profile'
+  setStatus(consentStatus, '')
+  document.getElementById('approve').onclick = async (event) => {
+    busy(event.currentTarget, true)
+    const { data: approved, error: approveError } = await supabase.auth.oauth.approveAuthorization(authorizationId)
+    if (approveError) { setStatus(consentStatus, approveError.message, 'error'); busy(event.currentTarget, false); return }
+    location.replace(approved.redirect_url)
+  }
+  document.getElementById('deny').onclick = async (event) => {
+    busy(event.currentTarget, true)
+    const { data: denied, error: denyError } = await supabase.auth.oauth.denyAuthorization(authorizationId)
+    if (denyError) { setStatus(consentStatus, denyError.message, 'error'); busy(event.currentTarget, false); return }
+    location.replace(denied.redirect_url ?? './')
+  }
+}
+
+async function route() {
+  const { data } = await supabase.auth.getSession()
+  const session = data.session
+  if (session && wantsConsent) { await showConsent(); return }
+  signinView.classList.remove('hidden')
+  consentView.classList.add('hidden')
+  if (wantsConsent) {
+    document.getElementById('signin-lead').textContent =
+      'Sign in to approve a connection to your Tally training log.'
+  }
+  if (session) setStatus(signinStatus, 'Signed in as ' + (session.user.email ?? session.user.id) + '.', 'ok')
+}
+
+setStatus(signinStatus, params.get('error_description') || '')
+
+emailForm.addEventListener('submit', async (event) => {
+  event.preventDefault()
+  const email = document.getElementById('email').value.trim()
+  const button = document.getElementById('send-link')
+  busy(button, true)
+  setStatus(signinStatus, 'Sending…')
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { shouldCreateUser: true, emailRedirectTo: callbackUrl() }
+  })
+  busy(button, false)
+  if (error) { setStatus(signinStatus, error.message, 'error'); return }
+  emailForm.classList.add('hidden')
+  sentPanel.classList.remove('hidden')
+  setStatus(signinStatus, 'Sign-in link sent to ' + email + '.', 'ok')
+})
+
+document.getElementById('resend').addEventListener('click', () => {
+  sentPanel.classList.add('hidden')
+  emailForm.classList.remove('hidden')
+  setStatus(signinStatus, '')
+})
+
+document.getElementById('apple').addEventListener('click', async (event) => {
+  busy(event.currentTarget, true)
+  setStatus(signinStatus, 'Opening Apple…')
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'apple',
+    options: { redirectTo: callbackUrl(), scopes: 'email name' }
+  })
+  if (error) { setStatus(signinStatus, error.message, 'error'); busy(event.currentTarget, false) }
+})
+
+supabase.auth.onAuthStateChange(() => { route() })
+route()
+</script>
+</body>
+</html>
