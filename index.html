@@ -5,19 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Tally account</title>
+<link rel="icon" type="image/svg+xml" href="./assets/tally-mark.svg">
 <style>
-  :root { color-scheme: dark; --bg:#0b0e13; --card:#151a22; --line:#2a3340; --text:#f2f5f8; --muted:#9aa7b6; --green:#34d399; --amber:#fbbf24; }
+  :root { color-scheme: dark; --bg:#0b0e13; --card:#151a22; --line:#2a3340; --text:#f2f5f8; --muted:#9aa7b6; --green:#2ED157; --amber:#fbbf24; }
   * { box-sizing:border-box }
   body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--text);
          font:16px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif; padding:24px; }
   .card { width:100%; max-width:420px; background:var(--card); border:1px solid var(--line); border-radius:18px; padding:28px; }
-  .mark { width:44px; height:44px; border-radius:12px; background:linear-gradient(135deg,var(--green),#0ea5e9); display:grid; place-items:center; font-weight:800; color:#05131c; }
+  .mark { display:block; width:44px; height:44px; border-radius:12px; }
   h1 { font-size:1.3rem; margin:18px 0 6px; letter-spacing:-.02em }
   p { color:var(--muted); margin:6px 0 }
   label { display:block; font-size:.82rem; color:var(--muted); margin:18px 0 6px }
   input { width:100%; padding:12px 13px; border-radius:11px; border:1px solid var(--line); background:#0c1119; color:var(--text); font:inherit }
   button { width:100%; margin-top:12px; padding:12px 14px; border:0; border-radius:11px; font:inherit; font-weight:600; cursor:pointer }
-  button.primary { background:var(--green); color:#05131c }
+  button.primary { background:var(--green); color:#08170D }
   button.secondary { background:transparent; color:var(--text); border:1px solid var(--line) }
   button.danger { background:transparent; color:#fca5a5; border:1px solid #4c2626 }
   button[disabled] { opacity:.5; cursor:progress }
@@ -32,7 +33,15 @@
 </head>
 <body>
 <div class="card">
-  <div class="mark">T</div>
+  <img class="mark" src="./assets/tally-mark.svg" alt="Tally">
+
+  <section id="invite-view" class="hidden">
+    <h1>Join your friends on Tally</h1>
+    <p id="invite-copy">Track workouts and share the sets you choose.</p>
+    <button class="primary" id="open-tally" type="button">Open Tally</button>
+    <button class="secondary hidden" id="testflight-link" type="button">Install Tally</button>
+    <p class="muted" id="install-copy">Install Tally through TestFlight when an invite is available, then return here and tap Open Tally.</p>
+  </section>
 
   <section id="consent" class="hidden">
     <h1 id="consent-title">Connect an app</h1>
@@ -60,7 +69,7 @@
     </div>
     <button class="secondary" id="apple" type="button">Sign in with Apple</button>
     <div class="status" id="signin-status"></div>
-    <p class="muted" id="privacy">Tally stores kg in the cloud and only training data. Sensor traces and Health data stay on your devices.</p>
+    <p class="muted" id="privacy">Profiles and published workouts are visible to the audience you choose. Workout photos stay private until you add them to a post. Sensor traces and Apple Health data stay on your devices.</p>
   </section>
 </div>
 
@@ -78,6 +87,9 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
 const params = new URLSearchParams(location.search)
 const authorizationId = params.get('authorization_id')
 const wantsConsent = params.get('view') === 'consent' || Boolean(authorizationId)
+const inviteCode = params.get('invite')
+// Fill this with the public TestFlight URL when remote distribution is enabled.
+const TESTFLIGHT_URL = ''
 
 const consentView = document.getElementById('consent')
 const signinView = document.getElementById('signin')
@@ -85,6 +97,18 @@ const signinStatus = document.getElementById('signin-status')
 const consentStatus = document.getElementById('consent-status')
 const emailForm = document.getElementById('email-form')
 const sentPanel = document.getElementById('sent')
+
+if (inviteCode && /^[0-9a-f-]{36}$/i.test(inviteCode)) {
+  document.getElementById('signin').classList.add('hidden')
+  document.getElementById('invite-view').classList.remove('hidden')
+  const openTally = document.getElementById('open-tally')
+  openTally.addEventListener('click', () => { location.href = `tally://invite/${encodeURIComponent(inviteCode)}` })
+  if (TESTFLIGHT_URL) {
+    const installLink = document.getElementById('testflight-link')
+    installLink.addEventListener('click', () => { location.href = TESTFLIGHT_URL })
+    installLink.classList.remove('hidden')
+  }
+}
 
 function setStatus(el, text, kind) {
   el.textContent = text || ''

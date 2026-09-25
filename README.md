@@ -1,14 +1,19 @@
 # Tally account site
 
-Public sign-in and OAuth 2.1 consent site for the Tally MCP server. It is
-deployed on its own origin and intentionally holds no training data and no raw
-motion traces.
+Public sign-in, OAuth 2.1 consent, and invite landing site for Tally. It holds
+no workout records or raw motion traces.
 
 - `index.html` — single-page sign-in and consent UI. Uses the Supabase
   publishable key, which is public by design; Row Level Security protects data.
+- `assets/tally-mark.svg` — shared Tally mark and site favicon.
 - `oauth/consent/index.html` — stable `/oauth/consent` path that forwards the
   `authorization_id` to the single-page site.
 - `404.html` — routes unknown paths back to the single-page site.
+- Invite URLs use `/?invite=<code>`; **Open Tally** launches
+  `tally://invite/<code>`. Set the TestFlight URL in `index.html` when remote
+  distribution is ready.
+- Privacy copy covers social profiles, audience-scoped workout posts, private
+  workout photos, and on-device sensor/Health data.
 
 ## Supabase settings that must match this origin
 
@@ -26,7 +31,10 @@ These are declared in the main repo at `supabase/config.toml` and applied with
 
 ## Deploy
 
-GitHub Pages serves this directory from the repository root of `tally-account`
-on the `main` branch. The canonical source lives in the main Tally repo at
-`account-site/`; copy `index.html`, `404.html`, `README.md`, and `oauth/` to this
-repository root when they change.
+The canonical source lives here in `account-site/`. On a push to `main` that
+changes this directory, the `Deploy account site` workflow mirrors it into the
+root of the public `tally-account` repository. GitHub Pages serves that
+repository from its `main` branch. The first deployment needs a fine-grained
+token named `TALLY_ACCOUNT_DEPLOY_TOKEN` with **Contents: read and write** on
+`shaurya-pathak/tally-account`; add it as a repository Actions secret on the
+private `tally` repository. See the [CI/CD setup guide](https://github.com/shaurya-pathak/tally/blob/main/docs/CI_CD.md).
